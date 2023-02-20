@@ -25,7 +25,7 @@ class MyVkApi(vk_api):
                     self.relation = user_info['relation']
                     return True
 
-    #--552934290
+    #--id
     def get_user_info(self, id=531102109):
         self.missing_params = []
         self.id = id
