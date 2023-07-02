@@ -197,9 +197,9 @@ def start_bot(session):
 
 
 if __name__ == '__main__':
-    print('Start')
+    print(' Start ')
     DbVk.Base.metadata.create_all(DbVk.engine)
     session = DbVk.Session()
     start_bot(session)
     session.commit()
-    print('Finish')
+    print(' Finish ')
