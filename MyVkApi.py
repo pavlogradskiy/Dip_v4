@@ -1,136 +1,91 @@
-from vk_api.vk_api import vk_api
+from pprint import pprint
+from datetime import datetime
 
-PARAMETERS_FOR_SEARCH = ['bdate', 'sex', 'relation', 'city']
+import vk_api
+from vk_api.exceptions import ApiError
+
+from config import acces_token
+
+class VkTools:
+    def __init__(self, acces_token):
+        self.vkapi = vk_api.VkApi(token=acces_token)
+
+    def _bdate_toyear(self, bdate):
+        user_year = bdate.split('.')[2]
+        now = datetime.now().year
+        return now - int(user_year)
+
+    def get_profile_info(self, user_id):
+
+        try:
+            info, = self.vkapi.method('users.get',
+                                      {'user_id': user_id,
+                                       'fields': 'city,sex,relation,bdate'
+                                       }
+                                      )
+        except ApiError as e:
+            info = {}
+            print(f'error = {e}')
+
+        result = {'name': (info['first_name'] + ' ' + info['last_name']) if
+                  'first_name' in info and 'last_name' in info else None,
+                  'sex': info.get('sex'),
+                  'city': info.get('city')['title'] if info.get('city') is not None else None,
+                  'year': self._bdate_toyear(info.get('bdate'))
+                  }
+        return result
+
+    def search_worksheet(self, params, offset):
+        try:
+            users = self.vkapi.method('users.search',
+                                      {
+                                          'count': 10,
+                                          'offset': offset,
+                                          'hometown': params['city'],
+                                          'sex': 1 if params['sex'] == 2 else 2,
+                                          'has_photo': True,
+                                          'age_from': params['year'] - 3,
+                                          'age_to': params['year'] + 3,
+                                      }
+                                      )
+        except ApiError as e:
+            users = []
+            print(f'error = {e}')
+
+        result = [{'name': item['first_name'] + item['last_name'],
+                   'id': item['id']
+                   } for item in users['items'] if item['is_closed'] is False
+                  ]
+
+        return result
+
+    def get_photos(self, id):
+        try:
+            photos = self.vkapi.method('photos.get',
+                                       {'owner_id': id,
+                                        'album_id': 'profile',
+                                        'extended': 1
+                                        }
+                                       )
+        except ApiError as e:
+            photos = {}
+            print(f'error = {e}')
+
+        result = [{'owner_id': item['owner_id'],
+                   'id': item['id'],
+                   'likes': item['likes']['count'],
+                   'comments': item['comments']['count']
+                   } for item in photos['items']
+                  ]
+        return result[:3]
 
 
-class MyVkApi(vk_api):
-    users_find_list = []
-    already_seen_users = []
+if __name__ == '__main__':
+    user_id = 789657038
+    tools = VkTools(acces_token)
+    params = tools.get_profile_info(user_id)
+    worksheets = tools.search_worksheet(params, 20)
+    worksheet = worksheets.pop()
+    photos = tools.get_photos(worksheet['id'])
 
-    def get_param_value(self, parameter, user_info):
-        if parameter in user_info:
-            if parameter != 0:
-                if parameter == 'city':
-                    self.city = user_info['city']['id']
-                    return True
-                elif parameter == 'sex':
-                    self.sex = user_info['sex']
-                    return True
-                elif parameter == 'bdate':
-                    bdate_list = user_info['bdate'].split('.')
-                    if len(bdate_list) == 3:
-                        self.bdate = int(bdate_list[2])
-                        return True
-                else:
-                    self.relation = user_info['relation']
-                    return True
-
-    #--id
-    def get_user_info(self, id=531102109):
-        self.missing_params = []
-        self.id = id
-        user_info = self.method(
-            'users.get',
-            {
-                'user_ids': self.id,
-                'fields': ','.join(PARAMETERS_FOR_SEARCH)
-            }
-        )
-        user_info = user_info[0]
-        self.name = user_info['first_name']
-        for parameter in PARAMETERS_FOR_SEARCH:
-            if not self.get_param_value(parameter, user_info):
-                self.missing_params.append(parameter)
-
-    def find_city_id(self, city: str) -> int:
-        '''
-        Идентификатор города пользователя
-        :param city: str
-        :return: int
-        '''
-        values = {
-            'country_id': 1,
-            'q': city,
-            'count': 1
-        }
-        response = self.method('database.getCities', values=values)
-        if response['items']:
-            city_id = response['items'][0]['id']
-            return city_id
-
-
-    def find_people(self):
-        values = {
-            'city': self.city,
-            'sex': 3 - self.sex,
-            'birth_year': self.bdate,
-            'status': self.relation,
-            'has_photo': 1,  # только пользователи с фотографиями
-            'count': 1000  # количество пользователей в ответе
-        }
-        users_list = self.method('users.search', values=values)
-        MyVkApi.users_find_list = users_list['items']
-
-    def get_likes_and_comments(self, photo) -> list:
-        likes = str(photo['likes']['count'])
-        comments = str(photo['likes']['count'])
-        photo_list = [likes, comments, photo['id']]
-        return photo_list
-
-    def _get_album_photos_inf(self, id, album='profile') -> list:
-        values = {
-            "owner_id": id,
-            "access_token": self.token,
-            "album_id": album,
-            "extended": 1,
-            "v": "5.131"
-        }
-        response = self.method('photos.get', values=values)
-        return response['items']
-
-    def get_top_photos(self, user_id=254731751) -> list:
-        unsorted_photos = []
-        photos_inf = self._get_album_photos_inf(user_id)  #id пользователя из поиска
-        for photo in photos_inf:
-            photo_list_for_sorted = self.get_likes_and_comments(photo)
-            unsorted_photos.append(photo_list_for_sorted)
-        sorted_photos = sorted(unsorted_photos, reverse=True)
-        if len(sorted_photos) > 3:
-            sorted_photos = sorted_photos[:3]
-        photo_str = f'photo{user_id}_'
-        top_photos = [f'{photo_str}{photo[2]}' for photo in sorted_photos]
-        return top_photos
-
-    def check_user(self, user):
-        '''
-        True - если пользователя нет в списке просмотренных, и его страница открыта
-        '''
-        if user['id'] not in MyVkApi.already_seen_users:
-            if not user['is_closed']:
-                return True
-            else:
-                MyVkApi.already_seen_users.append(user['id'])
-
-    def get_users_info(self) -> list:
-        self.find_people()
-        if MyVkApi.users_find_list:
-            users_info_for_print = []
-            for user in MyVkApi.users_find_list:
-                if len(users_info_for_print) == 3:
-                    break
-                if not self.check_user(user):
-                    continue
-                user_name = f"{user['first_name']} {user['last_name']}"
-                user_id = user['id']
-                user_url = 'https://vk.com/id' + str(user_id)
-                user_photos = self.get_top_photos(user_id)
-                user_info_dict = dict(
-                    id=user_id,
-                    name=user_name,
-                    url=user_url,
-                    photos=user_photos
-
-                )
-                users_info_for_print.append(user_info_dict)
-                MyVkApi.already_seen_users.append(user_id)
-            return users_info_for_print
+    pprint(worksheets)
