@@ -69,15 +69,19 @@ class VkTools:
                                        )
         except ApiError as e:
             photos = {}
-            print(f'error = {e}')
+            print(f'Не удалось загрузить фото; error = {e}')
 
-        result = [{'owner_id': item['owner_id'],
+        top_photos = sorted(
+            photos['items'],
+            key=lambda k: k['likes']['count'] + k['comments']['count'],
+            reverse=True
+        )[:3]
+        
+        result = [{'owner_id': top_photos[0]['owner_id'],
                    'id': item['id'],
-                   'likes': item['likes']['count'],
-                   'comments': item['comments']['count']
-                   } for item in photos['items']
+                  } for item in top_photos['items']
                   ]
-        return result[:3]
+        return result
 
 
 if __name__ == '__main__':
